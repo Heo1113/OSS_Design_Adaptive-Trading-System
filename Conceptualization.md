@@ -1,12 +1,12 @@
 # 1. Conceptualization
 
-**Project Title: OSS_Design_Adaptive-Trading-System** **(Student No: 학번 / Name: 성함 / E-mail: 이메일)**
+**Project Title: OSS_Design_Adaptive-Trading-System** 
 
 ### [ Revision history ]
 
 | Revision date | Version # | Description | Author |
 | :--- | :--- | :--- | :--- |
-| 2026-03-27 | 1.0.0 | Initial Draft (Conceptualization) | 본인 성함 |
+| 2026-03-27 | 1.0.0 | Initial Draft  | 허주호 |
 
 ---
 
@@ -14,15 +14,15 @@
 
 > **Project background, motivation, Goal, Target market etc.**
 
-* **Background & Motivation**: 암호화폐 선물 시장은 24시간 운영되며 변동성이 매우 큽니다. 기존의 정적인 자동 매매 시스템은 급변하는 시장 추세에 유연하게 대응하지 못해 수익성이 저하되는 한계가 있습니다.
-* **Goal**: 바이낸스(Binance) API를 활용해 실시간 데이터를 수집하고, **유전 알고리즘(Genetic Algorithm)**을 통해 매매 파라미터를 스스로 최적화하는 '지능형 적응 매매 엔진'을 구축합니다.
+* **Background & Motivation**: 암호화폐 선물 시장은 24시간 운영되며 변동성이 매우 큼. 기존의 정적인 자동 매매 시스템은 급변하는 시장 추세에 유연하게 대응하지 못해 수익성이 저하되는 한계가 있음.
+* **Goal**: 바이낸스(Binance) API를 활용해 실시간 데이터를 수집하고, **유전 알고리즘(Genetic Algorithm)**을 통해 매매 파라미터를 스스로 최적화하는 '지능형 적응 매매 엔진'을 구축한다.
 * **Target market**: 감정을 배제한 데이터 기반 투자를 원하는 개인 투자자 및 시스템 트레이딩 개발자.
 
 ---
 
 ### 2. System context diagram
 
-> **Relationships between “System” and “Users” (Operational Context)**
+![Use Case Diagram](./images/UseCaseDiagram1.png)
 
 
 
@@ -36,7 +36,7 @@
 
 ### 3. Use case list
 
-> **Find use cases in your project (Table type)**
+> **Find use cases in your project**
 
 | No | Use Case | Actor | Description |
 | :--- | :--- | :--- | :--- |
@@ -48,7 +48,7 @@
 
 ### 4. Concept of operation
 
-> **How to operate the use cases (Table type)**
+> **How to operate the use cases**
 
 #### 1) 전략 최적화 (Strategy Optimization)
 * **Purpose**: 시장 상황에 맞는 최적의 매매 파라미터 조합 도출.
