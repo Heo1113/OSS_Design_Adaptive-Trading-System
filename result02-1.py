@@ -1,0 +1,256 @@
+import pandas as pd
+import numpy as np
+import pandas_ta as ta
+from binance.client import Client
+import warnings
+import os
+import time
+
+warnings.filterwarnings('ignore')
+
+# [1. 설정 영역]
+client = Client("", "") 
+SYMBOL = 'FARTCOINUSDT'
+TEST_DAYS = 480        
+BUFFER_DAYS = 60
+LEVERAGE = 5
+
+TAKER_FEE = 0.0005   
+MAKER_FEE = 0.0002    
+SLIPPAGE = 0.001 
+
+# 사용자님이 주신 '나누기 방식용' 최적 파라미터
+BEST_PARAMS = {
+'atr_inter': '4h',
+
+ 'r_adx_limit': 16.13943736592201,
+
+ 'r_inter': '1h',
+
+ 'r_sl_mult': 0.003122766312846024,
+
+ 'r_slope_max': -4.259703666661831,
+
+ 'r_tp_mult': 3.893441599360326,
+
+ 'r_vol_limit': 1.853066332260667,
+
+ 'rsi_high': 56.05399998656385,
+
+ 'rsi_low': 43.01630308774784,
+
+ 't_adx_limit_normal': 31.679565181294052,
+
+ 't_adx_limit_strong': 41.86776717844237,
+
+ 't_inter_normal': '2h',
+
+ 't_inter_strong': '1h',
+
+ 't_rsi_max_normal': 83.89874062536252,
+
+ 't_rsi_max_strong': 75.22066216212338,
+
+ 't_rsi_min_normal': 20.656348152090604,
+
+ 't_rsi_min_strong': 10.468104719155058,
+
+ 't_sl_activate': 0.041353472258057536,
+
+ 't_sl_base_normal': 0.0031326157395832493,
+
+ 't_sl_base_strong': 0.009242923943382062,
+
+ 't_slope_min': 7.551904278771893,
+
+ 't_slope_strong': 3.4816259409797956,
+
+ 't_tp_mult': 5.713174777280339,
+
+ 't_tp_short_mult': 2.341256962698056,
+
+ 't_ts_mult': 0.000200006601282613,
+
+ 't_vol_limit_normal': 0.10081741110141343,
+
+ 't_vol_limit_strong': 1.6416286150845474
+}
+
+def get_data(symbol, interval, days):
+    for i in range(3):
+        try:
+            klines = client.futures_historical_klines(symbol, interval, f"{days} days ago UTC")
+            df = pd.DataFrame(klines, columns=['ts', 'open', 'high', 'low', 'close', 'vol', 'ct', 'qv', 'tr', 'tb', 'tq', 'ig'])
+            df['ts'] = pd.to_datetime(df['ts'], unit='ms')
+            df[['open', 'high', 'low', 'close', 'vol']] = df[['open', 'high', 'low', 'close', 'vol']].astype(float)
+            return df[['ts', 'open', 'high', 'low', 'close', 'vol']]
+        except: time.sleep(2)
+    return pd.DataFrame()
+
+def run_backtest(df_main, ind):
+    r_tf, tn_tf, ts_tf, atr_tf = ind['r_inter'], ind['t_inter_normal'], ind['t_inter_strong'], ind['atr_inter']
+    bal, peak_bal, max_dd = 100.0, 100.0, 0.0
+    pos = None
+    stats = {
+        'range': {'trades': 0, 'wins': 0, 'profit': 0.0},
+        'trend_normal': {'trades': 0, 'wins': 0, 'profit': 0.0},
+        'trend_strong': {'trades': 0, 'wins': 0, 'profit': 0.0}
+    }
+    trade_log = []
+    pos_duration = 0 # 보유 기간 카운트
+
+    for row in df_main.itertuples():
+        curr_p = row.close
+        
+        if pos is None:
+            mode, side = None, None
+            # 1. 횡보 판정 (기존 조건 유지)
+            if getattr(row, f"adx_{r_tf}") < ind['r_adx_limit'] and getattr(row, f"adx_slope_{r_tf}") <= ind['r_slope_max']:
+                if row.vol > (row.vol_mean * ind['r_vol_limit']):
+                    rsi_v, ma_v = getattr(row, f"rsi_{r_tf}"), getattr(row, f"ma20_{r_tf}")
+                    side = 'long' if (rsi_v < ind['rsi_low'] and curr_p < ma_v) else 'short' if (rsi_v > ind['rsi_high'] and curr_p > ma_v) else None
+                    if side: mode = 'range'
+            # 2. 추세 판정
+            if not mode:
+                if getattr(row, f"adx_{ts_tf}") > ind['t_adx_limit_strong'] and getattr(row, f"adx_slope_{ts_tf}") >= ind['t_slope_strong']:
+                    if getattr(row, f"cum_vol_{ts_tf}") > (getattr(row, f"vol_{ts_tf}_mean") * ind['t_vol_limit_strong']):
+                        rsi_v, ma_v = getattr(row, f"rsi_{ts_tf}"), getattr(row, f"ma20_{ts_tf}")
+                        side = 'long' if (curr_p > ma_v and rsi_v < ind['t_rsi_max_strong']) else 'short' if (curr_p < ma_v and rsi_v > ind['t_rsi_min_strong']) else None
+                        if side: mode = 'trend_strong'
+                
+                if not mode:
+                    if getattr(row, f"adx_{tn_tf}") > ind['t_adx_limit_normal'] and getattr(row, f"adx_slope_{tn_tf}") >= ind['t_slope_min']:
+                        if getattr(row, f"cum_vol_{tn_tf}") > (getattr(row, f"vol_{tn_tf}_mean") * ind['t_vol_limit_normal']):
+                            rsi_v, ma_v = getattr(row, f"rsi_{tn_tf}"), getattr(row, f"ma20_{tn_tf}")
+                            side = 'long' if (curr_p > ma_v and rsi_v < ind['t_rsi_max_normal']) else 'short' if (curr_p < ma_v and rsi_v > ind['t_rsi_min_normal']) else None
+                            if side: mode = 'trend_normal'
+
+            if mode and side:
+                atr_pct = getattr(row, f"atr_{atr_tf}") / (curr_p + 1e-9)
+                pos_duration = 0 # 카운트 초기화
+                
+                if mode == 'range':
+                    tp_pct = atr_pct * ind['r_tp_mult']
+                    # [수비 포인트 1] 횡보 손절은 절대값 2% 혹은 계산값 중 작은 것으로 제한
+                    sl_pct = min(ind['r_sl_mult'] / (atr_pct + 1e-9), 0.02) 
+                else:
+                    sl_base = ind['t_sl_base_strong'] if mode == 'trend_strong' else ind['t_sl_base_normal']
+                    target_mult = ind['t_tp_mult'] if mode == 'trend_strong' else ind['t_tp_short_mult']
+                    tp_pct = atr_pct * target_mult
+                    sl_pct = min(sl_base / (atr_pct + 1e-9), 0.05)
+                
+                if side == 'long':
+                    tp, sl = curr_p * (1 + tp_pct), curr_p * (1 - sl_pct)
+                else:
+                    tp, sl = curr_p * (1 - tp_pct), curr_p * (1 + sl_pct)
+                
+                pos = {'side': side, 'ent_p': curr_p, 'sl': sl, 'tp': tp, 'mode': mode}
+        
+        else:
+            pos_duration += 1
+            is_exit = False
+            exit_p = curr_p
+            
+            # [수비 포인트 2] 횡보 모드 타임아웃 (15봉)
+            if pos['mode'] == 'range' and pos_duration >= 15:
+                is_exit = True
+                exit_p = curr_p
+                
+            # 익손절 및 청산 체크 (기존 로직)
+            if not is_exit:
+                if (curr_p <= pos['sl'] if pos['side'] == 'long' else curr_p >= pos['sl']):
+                    is_exit = True
+                    exit_p = pos['sl']
+                elif (curr_p >= pos['tp'] if pos['side'] == 'long' else curr_p <= pos['tp']):
+                    is_exit = True
+                    exit_p = pos['tp']
+
+            if is_exit:
+                # [수비 포인트 3] 타임아웃 종료 시에는 TAKER FEE 적용 (시장가 탈출)
+                exit_fee = TAKER_FEE 
+                pnl = bal * (((exit_p - pos['ent_p'])/pos['ent_p'] if pos['side'] == 'long' else (pos['ent_p'] - exit_p)/pos['ent_p']) - (TAKER_FEE + exit_fee + SLIPPAGE*2)) * LEVERAGE
+                
+                bal += pnl
+                stats[pos['mode']]['trades'] += 1
+                stats[pos['mode']]['profit'] += pnl
+                if pnl > 0: stats[pos['mode']]['wins'] += 1
+                if bal > peak_bal: peak_bal = bal
+                max_dd = max(max_dd, (peak_bal - bal) / (peak_bal + 1e-9))
+                trade_log.append({'ts': row.ts, 'profit': pnl, 'bal': bal, 'mode': pos['mode']})
+                pos = None
+                if bal <= 5.0: break
+
+    return bal, trade_log, stats, peak_bal, max_dd
+if __name__ == "__main__":
+    total_days = TEST_DAYS + BUFFER_DAYS
+    df_main = get_data(SYMBOL, '3m', total_days)
+    
+    if not df_main.empty:
+        df_main['vol_mean'] = df_main['vol'].rolling(20).mean()
+        needed_tfs = list(set([BEST_PARAMS['r_inter'], BEST_PARAMS['t_inter_normal'], BEST_PARAMS['t_inter_strong'], BEST_PARAMS['atr_inter']]))
+        
+        for tf in needed_tfs:
+            print(f"🔄 {tf} 데이터 결합 중...")
+            df_tf = get_data(SYMBOL, tf, total_days)
+            if not df_tf.empty:
+                # MA20 계산 (tf 기준)
+                df_tf[f'ma20_{tf}'] = ta.sma(df_tf['close'], length=20)
+                adx_res = ta.adx(df_tf['high'], df_tf['low'], df_tf['close'])
+                df_tf[f'adx_{tf}'] = adx_res['ADX_14']
+                df_tf[f'adx_slope_{tf}'] = adx_res['ADX_14'].pct_change() * 100
+                df_tf[f'atr_{tf}'] = ta.atr(df_tf['high'], df_tf['low'], df_tf['close'], length=14)
+                df_tf[f'rsi_{tf}'] = ta.rsi(df_tf['close'], length=14)
+                df_tf[f'vol_{tf}_mean'] = df_tf['vol'].rolling(20).mean()
+                
+                df_main = pd.merge_asof(df_main.sort_values('ts'), 
+                                       df_tf[['ts', f'ma20_{tf}', f'adx_{tf}', f'adx_slope_{tf}', f'atr_{tf}', f'rsi_{tf}', f'vol_{tf}_mean']].sort_values('ts'), 
+                                       on='ts', direction='backward')
+                # 누적 거래량 계산 (KeyError 방지를 위해 replace 적용)
+                floor_freq = tf.lower().replace('m', 'min')
+                df_main[f'cum_vol_{tf}'] = df_main.groupby(df_main['ts'].dt.floor(floor_freq))['vol'].transform('cumsum')
+
+        df_ready = df_main[df_main['ts'] >= (df_main['ts'].max() - pd.Timedelta(days=TEST_DAYS))].dropna().reset_index(drop=True)
+        final_bal, logs, mode_stats, peak_bal, max_dd = run_backtest(df_ready, BEST_PARAMS)
+        
+        # 리포트 출력
+        all_modes = ['range', 'trend_normal', 'trend_strong']
+        total_trades = sum(mode_stats[m]['trades'] for m in all_modes)
+        total_wins = sum(mode_stats[m]['wins'] for m in all_modes)
+        
+        print("\n" + "="*65)
+        print(f"📊 {SYMBOL} 통합 성과 보고서 (최신 로직 반영)")
+        print(f"💰 최종 잔고: ${final_bal:,.2f} | 수익률: {((final_bal-100)/100)*100:,.1f}%")
+        print(f"🔝 최고 잔고: ${peak_bal:,.2f} | 📉 최대 낙폭(MDD): {max_dd*100:.2f}%")
+        
+        all_modes = ['range', 'trend_normal', 'trend_strong']
+        total_trades = sum(mode_stats[m]['trades'] for m in all_modes)
+        total_wins = sum(mode_stats[m]['wins'] for m in all_modes)
+        print(f"🤝 전체 거래: {total_trades}회 | 승률: {(total_wins/total_trades*100) if total_trades>0 else 0:.1f}%")
+
+        print("\n" + "─"*20 + " [모드별 상세 성과] " + "─"*21)
+        display_map = {'range': '횡보(Range)', 'trend_normal': '일반추세(Normal)', 'trend_strong': '파워추세(Power)'}
+        
+        abs_total_profit = sum(abs(mode_stats[m]['profit']) for m in all_modes)
+        for m in all_modes:
+            m_data = mode_stats[m]
+            m_winrate = (m_data['wins']/m_data['trades']*100) if m_data['trades'] > 0 else 0
+            contribution = (abs(m_data['profit']) / (abs_total_profit + 1e-9) * 100)
+            print(f"▶ {display_map[m]:15}: {m_data['trades']:3}회 거래 | 승률 {m_winrate:5.1f}%")
+            print(f"                 순수익 ${m_data['profit']:12,.2f} (비중: {contribution:5.1f}%)")
+
+        if logs:
+            df_log = pd.DataFrame(logs)
+            print("\n" + "─"*20 + " [월별 수익 추이] " + "─"*24)
+            monthly_stats = df_log.set_index('ts')['profit'].resample('ME').sum()
+            print(monthly_stats)
+
+            print("\n" + "─"*20 + " [치명적 손실 분석] " + "─"*21)
+            losses = df_log[df_log['profit'] < 0]['profit']
+            if not losses.empty:
+                print(f"📉 평균 손실액: ${abs(losses.mean()):,.2f}")
+                print(f"😱 최대 단일 손실: ${abs(losses.min()):,.2f}")
+
+            print(f"\n⚠️ [마지막 거래 기록 (청산 원인 파악)]")
+            for last_trade in logs[-3:]:
+                print(f"   {last_trade['ts']} | 수익: ${last_trade['profit']:,.2f} | 잔고: ${last_trade['bal']:,.2f} ({display_map[last_trade['mode']]})")
+        print("="*65)
