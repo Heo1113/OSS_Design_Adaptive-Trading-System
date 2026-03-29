@@ -251,11 +251,15 @@ def evaluate(args):
     r_tr, n_tr, s_tr = stats['range']['trades'], stats['trend_normal']['trades'], stats['trend_strong']['trades']
     total_trades = r_tr + n_tr + s_tr
 
-    # [개선] 탈락 조건: 모드별 최소 5거래 미달 또는 MDD 초과
-    # 기존의 "승률 100%" 필터를 제거하고 최소 거래 수 기준을 3 → 5로 상향
-    # 이유: wr==1.0 조건은 좋은 파라미터도 운 좋게 3번만 이긴 경우 걸러버림
-    #       최소 거래 수를 높여서 통계적 신뢰도로 대체하는 것이 더 합리적
-    if r_tr < 5 or n_tr < 5 or s_tr < 5 or mdd > MDD_LIMIT:
+    # ─── 탈락 조건 ───────────────────────────────────────────────────────────
+    # 0회 → 그 시장 상황이 없었던 것, 허용
+    # range/normal: 0 또는 3회+
+    # strong: 발생 빈도가 낮으므로 0 또는 2회+
+    mode_invalid = (
+        any(0 < tr < 3 for tr in [r_tr, n_tr]) or
+        (0 < s_tr < 2)
+    )
+    if total_trades < 15 or mode_invalid or mdd > MDD_LIMIT:
         return {**ind,
                 'Fitness': -1000000.0, 'ROI': bal - 100, 'PF': 0.0, 'MDD': mdd,
                 'Trades': total_trades, 'R_Tr': r_tr, 'TN_Tr': n_tr, 'TS_Tr': s_tr}
