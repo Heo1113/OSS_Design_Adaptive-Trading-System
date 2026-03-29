@@ -10,43 +10,52 @@ warnings.filterwarnings('ignore')
 
 # [1. 설정 영역]
 client = Client("", "") 
-SYMBOL = 'BTCUSDT'
+SYMBOL = 'FARTCOINUSDT'
 TEST_DAYS = 480        
 BUFFER_DAYS = 60
 LEVERAGE = 5
 
 TAKER_FEE = 0.0005   
 MAKER_FEE = 0.0002    
-SLIPPAGE = 0.001 
+SLIPPAGE = 0.001
 
+# 포지션 축소 기준선: 잔고가 이 값을 넘으면 전체 잔고가 아닌 10%만 포지션에 사용
+# 잔고 자체는 계속 쌓임 — back02.py / back02-2.py와 동일한 기준 유지
+BAL_CAP = 10_000.0
+
+# 최적 파라미터 (GA 결과값)
 BEST_PARAMS = {
-    'atr_inter': '4h',
-    'r_adx_limit': 16.13943736592201,
-    'r_inter': '1h',
-    'r_sl_mult': 0.003122766312846024,
-    'r_slope_max': -4.259703666661831,
-    'r_tp_mult': 3.893441599360326,
-    'r_vol_limit': 1.853066332260667,
-    'rsi_high': 56.05399998656385,
-    'rsi_low': 43.01630308774784,
-    't_adx_limit_normal': 31.679565181294052,
-    't_adx_limit_strong': 41.86776717844237,
-    't_inter_normal': '2h',
-    't_inter_strong': '1h',
-    't_rsi_max_normal': 83.89874062536252,
-    't_rsi_max_strong': 75.22066216212338,
-    't_rsi_min_normal': 20.656348152090604,
-    't_rsi_min_strong': 10.468104719155058,
-    't_sl_activate': 0.041353472258057536,   
-    't_sl_base_normal': 0.0031326157395832493,
-    't_sl_base_strong': 0.009242923943382062,
-    't_slope_min': 7.551904278771893,
-    't_slope_strong': 3.4816259409797956,
-    't_tp_mult': 5.713174777280339,
-    't_tp_short_mult': 2.341256962698056,
-    't_ts_mult': 0.000200006601282613,       
-    't_vol_limit_normal': 0.10081741110141343,
-    't_vol_limit_strong': 1.6416286150845474
+    'atr_inter'          : '4h',
+    'r_inter'            : '1h',
+    't_inter_normal'     : '2h',
+    't_inter_strong'     : '1h',
+
+    'r_adx_limit'        : 16.13943736592201,
+    'r_slope_max'        : -4.259703666661831,
+    'r_tp_mult'          : 3.893441599360326,
+    'r_sl_mult'          : 0.003122766312846024,   # SL = r_sl_mult / atr_pct (역비례)
+    'r_vol_limit'        : 1.853066332260667,
+    'rsi_low'            : 43.01630308774784,
+    'rsi_high'           : 56.05399998656385,
+
+    't_adx_limit_normal' : 31.679565181294052,
+    't_slope_min'        : 7.551904278771893,
+    't_tp_short_mult'    : 2.341256962698056,
+    't_vol_limit_normal' : 0.10081741110141343,
+    't_sl_base_normal'   : 0.0031326157395832493,
+    't_rsi_max_normal'   : 83.89874062536252,
+    't_rsi_min_normal'   : 20.656348152090604,
+
+    't_adx_limit_strong' : 41.86776717844237,
+    't_slope_strong'     : 3.4816259409797956,
+    't_tp_mult'          : 5.713174777280339,
+    't_vol_limit_strong' : 1.6416286150845474,
+    't_sl_base_strong'   : 0.009242923943382062,
+    't_rsi_max_strong'   : 75.22066216212338,
+    't_rsi_min_strong'   : 10.468104719155058,
+
+    't_ts_mult'          : 0.000200006601282613,
+    't_sl_activate'      : 0.041353472258057536,
 }
 
 def get_data(symbol, interval, days):
@@ -61,7 +70,10 @@ def get_data(symbol, interval, days):
     return pd.DataFrame()
 
 def run_backtest(df_main, ind):
-    r_tf, tn_tf, ts_tf, atr_tf = ind['r_inter'], ind['t_inter_normal'], ind['t_inter_strong'], ind['atr_inter']
+    r_tf  = ind['r_inter']
+    tn_tf = ind['t_inter_normal']
+    ts_tf = ind['t_inter_strong']
+    atr_tf = ind['atr_inter']
     bal, peak_bal, max_dd = 100.0, 100.0, 0.0
     pos = None
     stats = {
@@ -70,7 +82,7 @@ def run_backtest(df_main, ind):
         'trend_strong': {'trades': 0, 'wins': 0, 'profit': 0.0}
     }
     trade_log = []
-    trade_returns = []  
+    trade_returns = []  # 일관성 지표 계산용: 거래별 손익 기록
     pos_duration = 0
 
     for row in df_main.itertuples():
@@ -80,45 +92,47 @@ def run_backtest(df_main, ind):
             mode, side = None, None
 
             # 1. 횡보 판정
-            # [버그 수정] back02-2.py와 동일하게 bbw_slope 조건 추가
             if getattr(row, f"adx_{r_tf}") < ind['r_adx_limit'] and \
                getattr(row, f"adx_slope_{r_tf}") <= ind['r_slope_max'] and \
                getattr(row, f"bbw_slope_{r_tf}") < 0:
                 if row.vol > (row.vol_mean * ind['r_vol_limit']):
                     rsi_v, ma_v = getattr(row, f"rsi_{r_tf}"), getattr(row, f"ma20_{r_tf}")
-                    side = 'long' if (rsi_v < ind['rsi_low'] and curr_p < ma_v) else \
+                    side = 'long'  if (rsi_v < ind['rsi_low']  and curr_p < ma_v) else \
                            'short' if (rsi_v > ind['rsi_high'] and curr_p > ma_v) else None
                     if side: mode = 'range'
 
             # 2. 추세 판정
             if not mode:
-                if getattr(row, f"adx_{ts_tf}") > ind['t_adx_limit_strong'] and getattr(row, f"adx_slope_{ts_tf}") >= ind['t_slope_strong']:
+                if getattr(row, f"adx_{ts_tf}") > ind['t_adx_limit_strong'] and \
+                   getattr(row, f"adx_slope_{ts_tf}") >= ind['t_slope_strong']:
                     if getattr(row, f"cum_vol_{ts_tf}") > (getattr(row, f"vol_{ts_tf}_mean") * ind['t_vol_limit_strong']):
                         rsi_v, ma_v = getattr(row, f"rsi_{ts_tf}"), getattr(row, f"ma20_{ts_tf}")
-                        side = 'long' if (curr_p > ma_v and rsi_v < ind['t_rsi_max_strong']) else \
+                        side = 'long'  if (curr_p > ma_v and rsi_v < ind['t_rsi_max_strong']) else \
                                'short' if (curr_p < ma_v and rsi_v > ind['t_rsi_min_strong']) else None
                         if side: mode = 'trend_strong'
-                
+
                 if not mode:
-                    if getattr(row, f"adx_{tn_tf}") > ind['t_adx_limit_normal'] and getattr(row, f"adx_slope_{tn_tf}") >= ind['t_slope_min']:
+                    if getattr(row, f"adx_{tn_tf}") > ind['t_adx_limit_normal'] and \
+                       getattr(row, f"adx_slope_{tn_tf}") >= ind['t_slope_min']:
                         if getattr(row, f"cum_vol_{tn_tf}") > (getattr(row, f"vol_{tn_tf}_mean") * ind['t_vol_limit_normal']):
                             rsi_v, ma_v = getattr(row, f"rsi_{tn_tf}"), getattr(row, f"ma20_{tn_tf}")
-                            side = 'long' if (curr_p > ma_v and rsi_v < ind['t_rsi_max_normal']) else \
+                            side = 'long'  if (curr_p > ma_v and rsi_v < ind['t_rsi_max_normal']) else \
                                    'short' if (curr_p < ma_v and rsi_v > ind['t_rsi_min_normal']) else None
                             if side: mode = 'trend_normal'
 
             if mode and side:
                 atr_pct = getattr(row, f"atr_{atr_tf}") / (curr_p + 1e-9)
                 pos_duration = 0
-                
+
                 if mode == 'range':
                     tp_pct = atr_pct * ind['r_tp_mult']
                     sl_pct = min(ind['r_sl_mult'] / (atr_pct + 1e-9), 0.02)
-                else:
-                    sl_base = ind['t_sl_base_strong'] if mode == 'trend_strong' else ind['t_sl_base_normal']
-                    target_mult = ind['t_tp_mult'] if mode == 'trend_strong' else ind['t_tp_short_mult']
-                    tp_pct = atr_pct * target_mult
-                    sl_pct = min(sl_base / (atr_pct + 1e-9), 0.05)
+                elif mode == 'trend_strong':
+                    tp_pct = atr_pct * ind['t_tp_mult']
+                    sl_pct = min(ind['t_sl_base_strong'] / (atr_pct + 1e-9), 0.05)
+                else:  # trend_normal
+                    tp_pct = atr_pct * ind['t_tp_short_mult']
+                    sl_pct = min(ind['t_sl_base_normal'] / (atr_pct + 1e-9), 0.05)
                 
                 if side == 'long':
                     tp, sl = curr_p * (1 + tp_pct), curr_p * (1 - sl_pct)
@@ -171,10 +185,10 @@ def run_backtest(df_main, ind):
 
             if is_exit:
                 exit_fee = TAKER_FEE
-                pnl = bal * (((exit_p - pos['ent_p'])/pos['ent_p'] if pos['side'] == 'long' else (pos['ent_p'] - exit_p)/pos['ent_p']) - (TAKER_FEE + exit_fee + SLIPPAGE*2)) * LEVERAGE
-                
+                # 잔고가 BAL_CAP 초과 시 실제 잔고의 10%만 포지션에 사용
+                effective_bal = bal * 0.1 if bal > BAL_CAP else bal
+                pnl = effective_bal * (((exit_p - pos['ent_p'])/pos['ent_p'] if pos['side'] == 'long' else (pos['ent_p'] - exit_p)/pos['ent_p']) - (TAKER_FEE + exit_fee + SLIPPAGE*2)) * LEVERAGE
                 bal += pnl
-                # [버그 수정] 잔고 변경 직후 peak/MDD 계산 (pos 초기화 전)
                 if bal > peak_bal: peak_bal = bal
                 max_dd = max(max_dd, (peak_bal - bal) / (peak_bal + 1e-9))
                 stats[pos['mode']]['trades'] += 1
@@ -193,7 +207,12 @@ if __name__ == "__main__":
     
     if not df_main.empty:
         df_main['vol_mean'] = df_main['vol'].rolling(20).mean()
-        needed_tfs = list(set([BEST_PARAMS['r_inter'], BEST_PARAMS['t_inter_normal'], BEST_PARAMS['t_inter_strong'], BEST_PARAMS['atr_inter']]))
+        needed_tfs = list(set([
+            BEST_PARAMS['r_inter'],
+            BEST_PARAMS['t_inter_normal'],
+            BEST_PARAMS['t_inter_strong'],
+            BEST_PARAMS['atr_inter'],
+        ]))
         
         for tf in needed_tfs:
             print(f"🔄 {tf} 데이터 결합 중...")
@@ -207,6 +226,7 @@ if __name__ == "__main__":
                 df_tf[f'rsi_{tf}'] = ta.rsi(df_tf['close'], length=14)
                 df_tf[f'vol_{tf}_mean'] = df_tf['vol'].rolling(20).mean()
 
+                # [버그 수정] bbw_slope 컬럼 추가 (back02-2.py와 동일한 진입 조건 유지)
                 bb = ta.bbands(df_tf['close'], length=20, std=2.0)
                 bbl, bbm, bbu = bb.iloc[:, 0], bb.iloc[:, 1], bb.iloc[:, 2]
                 df_tf[f'bbw_{tf}'] = (bbu - bbl) / (bbm + 1e-9)
@@ -222,8 +242,7 @@ if __name__ == "__main__":
                 df_main[f'cum_vol_{tf}'] = df_main.groupby(df_main['ts'].dt.floor(floor_freq))['vol'].transform('cumsum')
 
         df_ready = df_main[df_main['ts'] >= (df_main['ts'].max() - pd.Timedelta(days=TEST_DAYS))].dropna().reset_index(drop=True)
-        
-        final_bal, logs, mode_stats, peak_bal, max_dd, trade_returns = run_backtest(df_ready, BEST_PARAMS)
+        final_bal, logs, mode_stats, peak_bal, max_dd = run_backtest(df_ready, BEST_PARAMS)
         
         all_modes = ['range', 'trend_normal', 'trend_strong']
         total_trades = sum(mode_stats[m]['trades'] for m in all_modes)
@@ -231,16 +250,6 @@ if __name__ == "__main__":
         
         print("\n" + "="*65)
         print(f"📊 {SYMBOL} 통합 성과 보고서 (트레일링 스탑 + bbw_slope 반영)")
-        
-        # [수정 2] 지표 계산 및 출력 (여기에 삽입)
-        roi = final_bal - 100
-        calmar = roi / (max_dd * 100 + 1e-9)
-        if len(trade_returns) >= 2:
-            consistency = np.mean(trade_returns) / (np.std(trade_returns) + 1e-9)
-        else:
-            consistency = 0.0
-        print(f"📐 Calmar: {calmar:.4f} | Consistency: {consistency:.4f}")
-        
         print(f"💰 최종 잔고: ${final_bal:,.2f} | 수익률: {((final_bal-100)/100)*100:,.1f}%")
         print(f"🔝 최고 잔고: ${peak_bal:,.2f} | 📉 최대 낙폭(MDD): {max_dd*100:.2f}%")
         print(f"🤝 전체 거래: {total_trades}회 | 승률: {(total_wins/total_trades*100) if total_trades>0 else 0:.1f}%")
