@@ -21,7 +21,8 @@ LEVERAGE = 5
 TAKER_FEE = 0.0005
 SLIPPAGE = 0.001
 
-# 잔고 상한선: 복리 폭발 방지
+# 포지션 축소 기준선: 잔고가 이 값을 넘으면 전체 잔고가 아닌 10%만 포지션에 사용
+# 잔고 자체는 계속 쌓임 — 포지션 크기만 줄여서 복리 폭발 속도를 억제
 BAL_CAP = 10_000.0
 
 # GA 하이퍼 파라미터
@@ -237,7 +238,6 @@ def evaluate(args):
                 effective_bal = bal * 0.1 if bal > BAL_CAP else bal
                 pnl = effective_bal * (((exit_p - pos['ent_p'])/pos['ent_p'] if pos['side'] == 'long' else (pos['ent_p'] - exit_p)/pos['ent_p']) - (TAKER_FEE*2 + SLIPPAGE)) * LEVERAGE
                 bal += pnl
-                bal = min(bal, BAL_CAP)   # 복리 폭발 방지
                 if bal > peak: peak = bal
                 mdd = max(mdd, (peak - bal) / (peak + 1e-9))
                 stats[pos['mode']]['trades'] += 1
