@@ -224,10 +224,16 @@ def evaluate(args):
     r_tr, n_tr, s_tr = stats['range']['trades'], stats['trend_normal']['trades'], stats['trend_strong']['trades']
     total_trades = r_tr + n_tr + s_tr
 
-    # ─── [개선된 피트니스 함수] ────────────────────────────────────────────────
-    # 기본 탈락 조건: 모드별 최소 5거래 미달 또는 MDD 초과
-    # (기존 전체 5회 → 모드별 5회로 강화해서 3가지 전략이 모두 작동함을 보장)
-    if r_tr < 5 or n_tr < 5 or s_tr < 5 or mdd > MDD_LIMIT:
+    # ─── 탈락 조건 ───────────────────────────────────────────────────────────
+    # 0회 → 그 시장 상황이 없었던 것, 허용
+    # 1~2회 → 우연 한두 번, 왜곡 위험 (range/normal)
+    # 1회   → 파워추세도 너무 적음 (strong)
+    # 파워추세는 발생 빈도가 낮으므로 최소치를 2회로 완화
+    mode_invalid = (
+        any(0 < tr < 3 for tr in [r_tr, n_tr]) or   # range/normal: 0 또는 3회+
+        (0 < s_tr < 2)                                # strong: 0 또는 2회+
+    )
+    if total_trades < 15 or mode_invalid or mdd > MDD_LIMIT:
         return {**ind,
                 'Fitness': -1000000.0, 'ROI': bal - 100, 'PF': 0.0, 'MDD': mdd, 'Trades': total_trades}
 
