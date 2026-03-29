@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 # [1. 설정 영역]
 client = Client("", "") 
-SYMBOL = 'FARTCOINUSDT'
+SYMBOL = 'BTCUSDT'
 TEST_DAYS = 480        
 BUFFER_DAYS = 60
 LEVERAGE = 5
