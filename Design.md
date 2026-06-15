@@ -5,7 +5,8 @@
 ### [ Revision history ]
 | Date | Version | Description | Author |
 | :--- | :--- | :--- | :--- |
-| 2026-06-05 | 1.0.0 | Initial Draft | 허주호 |
+| 2026-05-22 | 1.0.0 | Initial Draft | 허주호 |
+| 2026-06-11 | 1.1.0 | Implementation 확정 사항 반영 (Swing GUI, 외부 라이브러리 제거) | 허주호 |
 
 ---
 
@@ -321,15 +322,13 @@ Analysis 단계의 use case를 design class 수준의 객체 상호작용으로 
 
 * **OS**: Windows 10 이상 / macOS / Linux (JVM 기반 크로스 플랫폼)
 * **Implementation Language**: Java (JDK 17 LTS 이상)
-* **Build Tool**: Gradle 또는 Maven
-* **주요 라이브러리**:
-  * `binance-connector-java`: 바이낸스 REST/WebSocket API 연동
-  * `ta4j` (Technical Analysis for Java): 시세 데이터 처리 및 기술적 지표 계산
-  * `Jenetics`: 유전 알고리즘 프레임워크
-  * `Jackson` (또는 Gson): JSON 직렬화/역직렬화
-  * `dotenv-java`: `.env` 기반 API Key 보안 관리
-  * GUI: `JavaFX`
-* **보안**: API Key/Secret은 코드에 하드코딩하지 않고 `.env`(또는 외부 properties) 환경 변수로 관리
+* **Build Tool**: javac/jar 기반 빌드 스크립트 제공 (`build.sh` / `build.bat`) — 별도 빌드 도구 불필요
+* **외부 라이브러리**: 없음. 환경 독립적 실행 파일(JAR)을 보장하기 위해 JDK 표준 라이브러리만 사용함.
+  * `java.net.http` (HttpClient/WebSocket): 바이낸스 REST·WebSocket API 연동
+  * `javax.crypto` (HMAC-SHA256): API 요청 서명
+  * `javax.swing` (Swing): GUI
+  * 기술적 지표(SMA/RSI)·유전 알고리즘·JSON 파서는 자체 구현 (`Indicators`, `GAOptimizer`, `MiniJson`)
+* **보안**: API Key/Secret은 코드에 하드코딩하지 않고 `.env` 파일로 관리 (미설정 시 DEMO 모드로 동작)
 
 ---
 
@@ -352,8 +351,8 @@ Analysis 단계까지의 용어는 그대로 유효하며, Design 단계에서 �
 ## 7. References
 
 * [1] Binance API Documentation: https://binance-docs.github.io/apidocs/
-* [2] ta4j (Technical Analysis for Java): https://github.com/ta4j/ta4j
-* [3] Jenetics (Java Genetic Algorithm Library): https://jenetics.io/
+* [2] Oracle, Java SE 17 API Specification: https://docs.oracle.com/en/java/javase/17/docs/api/
+* [3] Oracle, Java Swing Tutorial: https://docs.oracle.com/javase/tutorial/uiswing/
 * [4] Bernd Bruegge, Allen H. Dutoit, *Object-Oriented Software Engineering: Using UML, Patterns, and Java*, 3rd edition, Pearson, 2010.
 * [5] OMG, *Unified Modeling Language Specification (UML 2.5.1)*, Object Management Group, 2017.
 * [6] StarUML 공식 문서: https://docs.staruml.io/
