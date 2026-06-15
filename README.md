@@ -80,6 +80,7 @@ src/ats/
 `OrderStatus`(NEW→SUBMITTED→…→FILLED/CANCELED) 전이로 구현됨.
 
 
+
 ## 라이선스
 
 GPL-3.0 — `LICENSE` 참조.
