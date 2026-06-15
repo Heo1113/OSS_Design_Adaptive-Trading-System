@@ -79,15 +79,6 @@ src/ats/
 상태 머신(Design 4장)은 `EngineState`(STOPPED↔RUNNING↔ERROR)와
 `OrderStatus`(NEW→SUBMITTED→…→FILLED/CANCELED) 전이로 구현됨.
 
-## GitHub에 올리기
-
-```bash
-git init -b main
-git add .
-git commit -m "Implement ATS"
-git remote add origin https://github.com/<계정>/OSS_Design_Adaptive-Trading-System.git
-git push -u origin main
-```
 
 ## 라이선스
 
